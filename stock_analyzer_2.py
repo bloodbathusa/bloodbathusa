@@ -186,10 +186,10 @@ if df_intraday is not None:
     st.plotly_chart(rsi_fig, use_container_width=True)
 
     # Corrected line: removed the "return" statement
-    bullets, trend = detect_patterns_intraday(df_intraday)
+    bullet_points, trend = detect_patterns_intraday(df_intraday)
     
     st.markdown("### 🔍 Intraday Pattern Detection:")
-    for b in bullets:
+    for b in bullet_points:
         st.markdown(b)
     st.markdown(f"**Next Intraday Trending Movement Prediction:** {trend}")
 else:
