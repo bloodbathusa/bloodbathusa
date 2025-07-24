@@ -2,11 +2,9 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 import plotly.graph_objs as go
-from sklearn.linear_model import LinearRegression
-import numpy as np
 from streamlit_autorefresh import st_autorefresh
 
 # === CONFIGURATION ===
@@ -20,7 +18,7 @@ def fetch_intraday_data(ticker, period="5d", interval="5m"):
     if df.empty:
         st.warning(f"No intraday data for {ticker}")
         return None
-    df.index = df.index.tz_localize(None)  # Remove timezone for consistency
+    df.index = df.index.tz_localize(None)
     return df
 
 def prepare_features(df):
@@ -32,7 +30,6 @@ def prepare_features(df):
     avg_loss = loss.rolling(14).mean()
     rs = avg_gain / avg_loss
     df['RSI'] = 100 - (100 / (1 + rs))
-
     df['SMA10'].fillna(method='bfill', inplace=True)
     df['RSI'].fillna(method='bfill', inplace=True)
     return df
@@ -72,7 +69,6 @@ def detect_patterns_intraday(df):
         bullet_points.append("• Not enough valid data points for pattern detection.")
         return bullet_points, "Neutral"
 
-    # Sort and align for pattern logic
     df = df.sort_index()
     close = df['Close']
     sma = df['SMA10']
@@ -100,7 +96,6 @@ def detect_patterns_intraday(df):
     if not bullet_points:
         bullet_points.append("• No clear intraday bullish, bearish, or reversal patterns detected.")
 
-    # Final trend output
     if any("Bullish" in pt for pt in bullet_points):
         trend = "Bullish"
     elif any("Bearish" in pt for pt in bullet_points):
@@ -111,31 +106,6 @@ def detect_patterns_intraday(df):
         trend = "Neutral"
 
     return bullet_points, trend
-
-def predict_next_day_price(ticker):
-    try:
-        df = yf.download(ticker, period="3mo", interval="1d")
-        df = prepare_features(df)
-        df = df.dropna(subset=['Close', 'SMA10', 'RSI', 'Volume'])
-
-        features = df[['Close', 'SMA10', 'RSI', 'Volume']].values[:-1]
-        target = df['Close'].values[1:]
-
-        if len(features) < 10:
-            return None, None
-
-        model = LinearRegression()
-        model.fit(features, target)
-
-        last_row = df.iloc[-1]
-        next_day_features = np.array([[last_row['Close'], last_row['SMA10'], last_row['RSI'], last_row['Volume']]])
-        pred = model.predict(next_day_features)[0]
-        last_close = last_row['Close']
-
-        return round(pred, 2), round(pred - last_close, 2)
-    except Exception as e:
-        st.warning(f"Prediction error for {ticker}: {e}")
-        return None, None
 
 def fetch_stock_data(ticker):
     try:
@@ -191,7 +161,7 @@ def fetch_crypto_data():
 
 # === STREAMLIT APP ===
 st.set_page_config(page_title="Live NASDAQ 5-min Dashboard", layout="wide")
-st.title("📈 Live NASDAQ 5-Minute Intraday Dashboard with Pattern Detection & AI Prediction")
+st.title("📈 Live NASDAQ 5-Minute Intraday Dashboard with Pattern Detection")
 
 count = st_autorefresh(interval=REFRESH_SECONDS * 1000, limit=None, key="datarefresh")
 
@@ -208,7 +178,7 @@ st.dataframe(stock_df, use_container_width=True)
 st.subheader("💰 Crypto Prices (Kraken)")
 st.dataframe(crypto_df[['exchange', 'symbol', 'price', 'volume']], use_container_width=True)
 
-selected = st.selectbox("📌 Select NASDAQ Stock for Intraday Chart & Prediction", TOP_OPTION_STOCKS)
+selected = st.selectbox("📌 Select NASDAQ Stock for Intraday Chart", TOP_OPTION_STOCKS)
 
 df_intraday, price_fig, rsi_fig = plot_intraday_chart(selected)
 if df_intraday is not None:
@@ -222,13 +192,3 @@ if df_intraday is not None:
     st.markdown(f"**Next Intraday Trending Movement Prediction:** {trend}")
 else:
     st.warning("Intraday data not available.")
-
-try:
-    predicted_price, price_change = predict_next_day_price(selected)
-    if predicted_price is not None:
-        st.markdown(f"### 🤖 AI Next-Day Close Price Prediction for {selected}:")
-        st.markdown(f"**Predicted Price:** ${predicted_price}  _(change: {price_change:+.2f})_")
-    else:
-        st.warning("Prediction unavailable due to insufficient data.")
-except Exception as e:
-    st.error(f"Error predicting price for {selected}: {e}")
