@@ -12,8 +12,7 @@ from streamlit_autorefresh import st_autorefresh
 # === CONFIGURATION ===
 TOP_OPTION_STOCKS = ['AAPL', 'NVDA', 'AMD', 'MSFT', 'TSLA']
 HEADERS = {'User-Agent': 'LiveMarketAnalyzer/1.0'}
-
-REFRESH_SECONDS = 60  # Auto-refresh interval
+REFRESH_SECONDS = 60  # Auto-refresh interval in seconds
 
 # === DATA FETCHING FUNCTIONS ===
 def fetch_stock_data(ticker):
@@ -68,30 +67,9 @@ def fetch_crypto_data():
     except:
         return []
 
-# === AI Prediction: Linear Regression for Next Day Close ===
-def predict_next_day_price(ticker):
-    try:
-        df = yf.download(ticker, period="3mo", interval="1d")
-        df = df.dropna(subset=['Close'])
-        df['Day'] = np.arange(len(df))
-        X = df[['Day']]
-        y = df['Close']
-
-        model = LinearRegression()
-        model.fit(X, y)
-
-        next_day = np.array([[len(df)]])
-        pred = model.predict(next_day)[0]
-        last_close = y.iloc[-1]
-
-        return round(pred, 2), round(pred - last_close, 2)
-    except:
-        return None, None
-
-# === PLOTTING ===
-def plot_stock_chart(ticker):
-    df = yf.download(ticker, period="2mo", interval="1d")
-    df['SMA10'] = df['Close'].rolling(10).mean()
+# === FEATURE PREPARATION ===
+def prepare_features(df):
+    df['SMA10'] = df['Close'].rolling(window=10).mean()
     delta = df['Close'].diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
@@ -99,6 +77,46 @@ def plot_stock_chart(ticker):
     avg_loss = loss.rolling(14).mean()
     rs = avg_gain / avg_loss
     df['RSI'] = 100 - (100 / (1 + rs))
+
+    # Fill NaNs with backward fill for safety
+    df['SMA10'].fillna(method='bfill', inplace=True)
+    df['RSI'].fillna(method='bfill', inplace=True)
+
+    return df
+
+# === AI Prediction: Next Day Price Using Multiple Features ===
+def predict_next_day_price(ticker):
+    try:
+        df = yf.download(ticker, period="3mo", interval="1d")
+        df = prepare_features(df)
+        df = df.dropna(subset=['Close', 'SMA10', 'RSI', 'Volume'])
+
+        # Features at day t
+        features = df[['Close', 'SMA10', 'RSI', 'Volume']].values[:-1]
+        # Target is close price next day
+        target = df['Close'].values[1:]
+
+        if len(features) < 10:
+            return None, None  # Not enough data
+
+        model = LinearRegression()
+        model.fit(features, target)
+
+        last_row = df.iloc[-1]
+        next_day_features = np.array([[last_row['Close'], last_row['SMA10'], last_row['RSI'], last_row['Volume']]])
+
+        pred = model.predict(next_day_features)[0]
+        last_close = last_row['Close']
+
+        return round(pred, 2), round(pred - last_close, 2)
+    except Exception as e:
+        st.warning(f"Prediction error for {ticker}: {e}")
+        return None, None
+
+# === PLOTTING ===
+def plot_stock_chart(ticker):
+    df = yf.download(ticker, period="2mo", interval="1d")
+    df = prepare_features(df)
 
     price_fig = go.Figure()
     price_fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name="Close"))
@@ -136,13 +154,19 @@ st.dataframe(crypto_df[['exchange', 'symbol', 'price', 'volume']], use_container
 
 selected = st.selectbox("📌 Select Stock for Chart & Prediction", TOP_OPTION_STOCKS)
 
-price_fig, rsi_fig = plot_stock_chart(selected)
-st.plotly_chart(price_fig, use_container_width=True)
-st.plotly_chart(rsi_fig, use_container_width=True)
+try:
+    price_fig, rsi_fig = plot_stock_chart(selected)
+    st.plotly_chart(price_fig, use_container_width=True)
+    st.plotly_chart(rsi_fig, use_container_width=True)
+except Exception as e:
+    st.error(f"Error plotting charts for {selected}: {e}")
 
-predicted_price, price_change = predict_next_day_price(selected)
-if predicted_price is not None:
-    st.markdown(f"### 🤖 AI Prediction for {selected}:")
-    st.markdown(f"**Next Day Close Price:** ${predicted_price}  _(change: {price_change:+.2f})_")
-else:
-    st.write("Prediction unavailable.")
+try:
+    predicted_price, price_change = predict_next_day_price(selected)
+    if predicted_price is not None:
+        st.markdown(f"### 🤖 AI Prediction for {selected}:")
+        st.markdown(f"**Next Day Close Price:** ${predicted_price}  _(change: {price_change:+.2f})_")
+    else:
+        st.warning("Prediction unavailable due to insufficient data.")
+except Exception as e:
+    st.error(f"Error predicting price for {selected}: {e}")
