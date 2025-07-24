@@ -56,56 +56,46 @@ def plot_intraday_chart(ticker):
     return df, price_fig, rsi_fig
 
 def detect_patterns_intraday(df):
+    """
+    Analyzes intraday stock data to find bullish, bearish, and reversal patterns.
+
+    Args:
+        df (pd.DataFrame): DataFrame with 'Close', 'SMA10', and 'RSI' columns.
+
+    Returns:
+        tuple: A list of descriptive strings (bullet_points) and a final trend string.
+    """
     bullet_points = []
+    trend = "Neutral"
 
+    # 1. --- Data Validation ---
     expected_cols = ['Close', 'SMA10', 'RSI']
-    missing_cols = [col for col in expected_cols if col not in df.columns]
-    if missing_cols:
-        bullet_points.append(f"• Missing expected columns: {', '.join(missing_cols)}")
-        return bullet_points, "Neutral"
+    if not all(col in df.columns for col in expected_cols):
+        return ["• Data columns ('Close', 'SMA10', 'RSI') not found."], "Error"
 
-    df = df.dropna(subset=df.expected_cols).copy()
-    if df.empty or len(df) < 2:
-        bullet_points.append("• Not enough valid data points for pattern detection.")
-        return bullet_points, "Neutral"
+    df = df.dropna(subset=expected_cols).copy()
+    if len(df) < 10: # Increased minimum length for more reliable analysis
+        return ["• Not enough data for pattern detection."], "Neutral"
 
-    df = df.sort_index()
-    close = df['Close']
-    sma = df['SMA10']
-    rsi = df['RSI']
+    # 2. --- Get Most Recent Data ---
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
 
-    aligned = pd.concat([close.shift(1), sma.shift(1), close, sma], axis=1)
-    aligned.columns = ['close_prev', 'sma_prev', 'close', 'sma']
-    cross_above = ((aligned['close_prev'] < aligned['sma_prev']) & (aligned['close'] > aligned['sma'])).any()
-    cross_below = ((aligned['close_prev'] > aligned['sma_prev']) & (aligned['close'] < aligned['sma'])).any()
+    # 3. --- Check for Recent SMA Crossover ---
+    crossed_above_sma = prev['Close'] < prev['SMA10'] and last['Close'] > last['SMA10']
+    crossed_below_sma = prev['Close'] > prev['SMA10'] and last['Close'] < last['SMA10']
 
-    rsi_trend_up = rsi.iloc[-1] > rsi.iloc[0]
-    rsi_trend_down = rsi.iloc[-1] < rsi.iloc[0]
-    rsi_cross_overbought_down = ((rsi.shift(1) > 70) & (rsi < 70)).any()
-    rsi_cross_oversold_up = ((rsi.shift(1) < 30) & (rsi > 30)).any()
+    # 4. --- Check Recent RSI Trend and State ---
+    # Check if RSI has been rising over the last 5 periods
+    rsi_trending_up = last['RSI'] > df['RSI'].iloc[-5:].mean()
+    rsi_trending_down = last['RSI'] < df['RSI'].iloc[-5:].mean()
+    
+    # Check if RSI just crossed out of oversold/overbought
+    rsi_crossed_up_from_oversold = prev['RSI'] < 30 and last['RSI'] > 30
+    rsi_crossed_down_from_overbought = prev['RSI'] > 70 and last['RSI'] < 70
 
-    if cross_above and rsi_trend_up and rsi.iloc[-1] < 70:
-        bullet_points.append("• Bullish signal: Price crossed above SMA10 and RSI trending up below 70.")
-    if cross_below and rsi_trend_down and rsi.iloc[-1] > 30:
-        bullet_points.append("• Bearish signal: Price crossed below SMA10 and RSI trending down above 30.")
-    if rsi_cross_overbought_down:
-        bullet_points.append("• Reversal signal: RSI crossed down below 70 (overbought).")
-    if rsi_cross_oversold_up:
-        bullet_points.append("• Reversal signal: RSI crossed up above 30 (oversold).")
-
-    if not bullet_points:
-        bullet_points.append("• No clear intraday bullish, bearish, or reversal patterns detected.")
-
-    if any("Bullish" in pt for pt in bullet_points):
-        trend = "Bullish"
-    elif any("Bearish" in pt for pt in bullet_points):
-        trend = "Bearish"
-    elif any("Reversal" in pt for pt in bullet_points):
-        trend = "Reversal"
-    else:
-        trend = "Neutral"
-
-    return bullet_points, trend
+    # 5. --- Generate Bullet Points based on Logic ---
+    if crossed_above_sma:
 
 def fetch_stock_data(ticker):
     try:
