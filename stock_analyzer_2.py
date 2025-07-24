@@ -61,18 +61,19 @@ def plot_intraday_chart(ticker):
 def detect_patterns_intraday(df):
     bullet_points = []
 
-    if 'SMA10' not in df.columns or 'RSI' not in df.columns:
-        bullet_points.append("• Required indicators (SMA10 or RSI) not present in data.")
+    expected_cols = ['Close', 'SMA10', 'RSI']
+    missing_cols = [col for col in expected_cols if col not in df.columns]
+    if missing_cols:
+        bullet_points.append(f"• Missing expected columns: {', '.join(missing_cols)}")
         return bullet_points, "Neutral"
 
-    df = df.dropna(subset=['Close', 'SMA10', 'RSI']).copy()
-    df = df.sort_index()  # Ensure proper chronological order
-
+    df = df.dropna(subset=expected_cols).copy()
     if df.empty or len(df) < 2:
         bullet_points.append("• Not enough valid data points for pattern detection.")
         return bullet_points, "Neutral"
 
-    # Ensure aligned indices for all Series
+    # Sort and align for pattern logic
+    df = df.sort_index()
     close = df['Close']
     sma = df['SMA10']
     rsi = df['RSI']
@@ -99,6 +100,7 @@ def detect_patterns_intraday(df):
     if not bullet_points:
         bullet_points.append("• No clear intraday bullish, bearish, or reversal patterns detected.")
 
+    # Final trend output
     if any("Bullish" in pt for pt in bullet_points):
         trend = "Bullish"
     elif any("Bearish" in pt for pt in bullet_points):
