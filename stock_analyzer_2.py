@@ -64,12 +64,12 @@ def detect_patterns_intraday(df):
         bullet_points.append(f"• Missing expected columns: {', '.join(missing_cols)}")
         return bullet_points, "Neutral"
 
-    df = dropna(subset=expected_cols).copy()
-    if empty or len(df) < 2:
+    df = df.dropna(subset=df.expected_cols).copy()
+    if df.empty or len(df) < 2:
         bullet_points.append("• Not enough valid data points for pattern detection.")
         return bullet_points, "Neutral"
 
-    df = sort_index()
+    df = df.sort_index()
     close = df['Close']
     sma = df['SMA10']
     rsi = df['RSI']
