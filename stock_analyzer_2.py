@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 import plotly.graph_objs as go
 from sklearn.linear_model import LinearRegression
 import numpy as np
+from streamlit_autorefresh import st_autorefresh
 
 # === CONFIGURATION ===
 TOP_OPTION_STOCKS = ['AAPL', 'NVDA', 'AMD', 'MSFT', 'TSLA']
@@ -117,12 +118,10 @@ st.set_page_config(page_title="Live Stock & Crypto Dashboard", layout="wide")
 st.title("📈 Live Stock & Crypto Dashboard with Auto-Refresh & AI Prediction")
 
 # Auto-refresh every REFRESH_SECONDS seconds
-st_autorefresh = st.experimental_memo.clear  # Clear cache (optional)
-
-with st.expander(f"Auto-refresh every {REFRESH_SECONDS} seconds"):
-    st.write("The dashboard refreshes automatically.")
+count = st_autorefresh(interval=REFRESH_SECONDS * 1000, limit=None, key="datarefresh")
 
 st.write(f"Last update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.write(f"Auto-refresh count: {count}")
 
 # Fetch data
 stock_df = fetch_all_stock_signals()
@@ -147,6 +146,3 @@ if predicted_price is not None:
     st.markdown(f"**Next Day Close Price:** ${predicted_price}  _(change: {price_change:+.2f})_")
 else:
     st.write("Prediction unavailable.")
-
-# Run auto refresh
-st.experimental_rerun()
