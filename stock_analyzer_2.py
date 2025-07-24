@@ -61,12 +61,27 @@ def plot_intraday_chart(ticker):
 def detect_patterns_intraday(df):
     bullet_points = []
 
+    if 'SMA10' not in df.columns or 'RSI' not in df.columns:
+        bullet_points.append("• Required indicators (SMA10 or RSI) not present in data.")
+        return bullet_points, "Neutral"
+
+    df = df.dropna(subset=['Close', 'SMA10', 'RSI']).copy()
+    df = df.sort_index()  # Ensure proper chronological order
+
+    if df.empty or len(df) < 2:
+        bullet_points.append("• Not enough valid data points for pattern detection.")
+        return bullet_points, "Neutral"
+
+    # Ensure aligned indices for all Series
     close = df['Close']
     sma = df['SMA10']
-    cross_above = ((close.shift(1) < sma.shift(1)) & (close > sma)).any()
-    cross_below = ((close.shift(1) > sma.shift(1)) & (close < sma)).any()
-
     rsi = df['RSI']
+
+    aligned = pd.concat([close.shift(1), sma.shift(1), close, sma], axis=1)
+    aligned.columns = ['close_prev', 'sma_prev', 'close', 'sma']
+    cross_above = ((aligned['close_prev'] < aligned['sma_prev']) & (aligned['close'] > aligned['sma'])).any()
+    cross_below = ((aligned['close_prev'] > aligned['sma_prev']) & (aligned['close'] < aligned['sma'])).any()
+
     rsi_trend_up = rsi.iloc[-1] > rsi.iloc[0]
     rsi_trend_down = rsi.iloc[-1] < rsi.iloc[0]
     rsi_cross_overbought_down = ((rsi.shift(1) > 70) & (rsi < 70)).any()
