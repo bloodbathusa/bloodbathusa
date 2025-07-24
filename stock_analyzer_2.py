@@ -61,12 +61,23 @@ def plot_intraday_chart(ticker):
 def detect_patterns_intraday(df):
     bullet_points = []
 
+    if 'SMA10' not in df.columns or 'RSI' not in df.columns:
+        bullet_points.append("• Required indicators (SMA10 or RSI) not present in data.")
+        return bullet_points, "Neutral"
+
+    df = df.dropna(subset=['Close', 'SMA10', 'RSI']).copy()
+    if df.empty or len(df) < 2:
+        bullet_points.append("• Not enough valid data points for pattern detection.")
+        return bullet_points, "Neutral"
+
     close = df['Close']
     sma = df['SMA10']
+    rsi = df['RSI']
+
+    # Safe comparisons
     cross_above = ((close.shift(1) < sma.shift(1)) & (close > sma)).any()
     cross_below = ((close.shift(1) > sma.shift(1)) & (close < sma)).any()
 
-    rsi = df['RSI']
     rsi_trend_up = rsi.iloc[-1] > rsi.iloc[0]
     rsi_trend_down = rsi.iloc[-1] < rsi.iloc[0]
     rsi_cross_overbought_down = ((rsi.shift(1) > 70) & (rsi < 70)).any()
