@@ -3,17 +3,25 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objs as go
-import talib
+from ta.trend import SMAIndicator, MACD
+from ta.momentum import RSIIndicator
+from ta.volatility import BollingerBands
 
 # === Helper Functions ===
 
 def calculate_indicators(df):
-    df['SMA_20'] = df['Close'].rolling(window=20).mean()
-    df['SMA_50'] = df['Close'].rolling(window=50).mean()
-    df['Upper_Band'], df['Middle_Band'], df['Lower_Band'] = talib.BBANDS(df['Close'], timeperiod=20)
-    df['RSI'] = talib.RSI(df['Close'], timeperiod=14)
-    macd, macd_signal, _ = talib.MACD(df['Close'], fastperiod=12, slowperiod=26, signalperiod=9)
-    df['MACD'], df['MACD_Signal'] = macd, macd_signal
+    df['SMA_20'] = SMAIndicator(df['Close'], window=20).sma_indicator()
+    df['SMA_50'] = SMAIndicator(df['Close'], window=50).sma_indicator()
+    df['RSI'] = RSIIndicator(df['Close'], window=14).rsi()
+
+    bb = BollingerBands(df['Close'], window=20, window_dev=2)
+    df['Upper_Band'] = bb.bollinger_hband()
+    df['Lower_Band'] = bb.bollinger_lband()
+
+    macd = MACD(df['Close'])
+    df['MACD'] = macd.macd()
+    df['MACD_Signal'] = macd.macd_signal()
+
     return df
 
 def detect_trend(df):
@@ -25,49 +33,30 @@ def detect_trend(df):
     else:
         return 'Neutral'
 
-def detect_patterns(df):
-    patterns = {
-        'Doji': talib.CDLDOJI,
-        'Hammer': talib.CDLHAMMER,
-        'Engulfing': talib.CDLENGULFING,
-        'Shooting Star': talib.CDLSHOOTINGSTAR,
-    }
-    results = {}
-    for name, func in patterns.items():
-        pattern_series = func(df['Open'], df['High'], df['Low'], df['Close'])
-        if pattern_series.iloc[-1] != 0:
-            results[name] = int(pattern_series.iloc[-1])
-    return results
-
-def trade_suggestion(trend, rsi, patterns):
-    if 'Hammer' in patterns or 'Engulfing' in patterns:
-        return '📈 Suggestion: CALL (Reversal Pattern Detected)'
-    elif 'Shooting Star' in patterns or trend == 'Bearish':
-        return '📉 Suggestion: PUT (Bearish Sentiment)'
-    elif trend == 'Bullish' and rsi < 70:
-        return '📈 Suggestion: CALL (Momentum)'
+def trade_suggestion(trend, rsi):
+    if trend == 'Bullish' and rsi < 70:
+        return '📈 Suggestion: CALL (Momentum Positive)'
     elif trend == 'Bearish' and rsi > 30:
-        return '📉 Suggestion: PUT'
+        return '📉 Suggestion: PUT (Downtrend)'
     else:
-        return '⏸️ Suggestion: Wait'
+        return '⏸️ Suggestion: WAIT (Sideways or Overbought/Oversold)'
 
 # === Streamlit UI ===
 
-st.title("📊 Advanced Technical Analysis & Trade Advisor")
+st.title("📊 Technical Analysis & Trade Suggestion App")
 
 ticker = st.text_input("Enter Stock Ticker", value="AAPL")
 
 if ticker:
     df = yf.download(ticker, period="6mo", interval="1d")
-    
+
     if df.empty:
-        st.warning("No data found. Check ticker symbol.")
+        st.warning("No data found for ticker.")
     else:
         df = calculate_indicators(df)
         trend = detect_trend(df)
-        patterns = detect_patterns(df)
         rsi = df['RSI'].iloc[-1]
-        suggestion = trade_suggestion(trend, rsi, patterns)
+        suggestion = trade_suggestion(trend, rsi)
 
         # === Chart ===
         fig = go.Figure()
@@ -75,19 +64,20 @@ if ticker:
             x=df.index,
             open=df['Open'], high=df['High'],
             low=df['Low'], close=df['Close'],
-            name='Candlestick'
+            name='Candlesticks'
         ))
-        fig.add_trace(go.Scatter(x=df.index, y=df['Upper_Band'], line=dict(color='gray'), name='Upper Band'))
-        fig.add_trace(go.Scatter(x=df.index, y=df['Lower_Band'], line=dict(color='gray'), name='Lower Band'))
-        fig.update_layout(title=f"{ticker} Candlestick Chart with Bollinger Bands", xaxis_title='Date', yaxis_title='Price')
+        fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], line=dict(color='blue'), name='SMA 20'))
+        fig.add_trace(go.Scatter(x=df.index, y=df['SMA_50'], line=dict(color='red'), name='SMA 50'))
+        fig.add_trace(go.Scatter(x=df.index, y=df['Upper_Band'], line=dict(color='gray'), name='Upper Band', line_dash='dot'))
+        fig.add_trace(go.Scatter(x=df.index, y=df['Lower_Band'], line=dict(color='gray'), name='Lower Band', line_dash='dot'))
+        fig.update_layout(title=f"{ticker} Technical Chart", xaxis_title="Date", yaxis_title="Price")
         st.plotly_chart(fig)
 
         # === Summary ===
-        st.subheader("📌 Technical Summary")
+        st.subheader("📌 Analysis Summary")
         st.markdown(f"- **Trend:** {trend}")
         st.markdown(f"- **RSI:** {rsi:.2f}")
-        st.markdown(f"- **Patterns Detected:** {', '.join(patterns.keys()) if patterns else 'None'}")
         st.markdown(f"- {suggestion}")
 
-        if st.checkbox("Show Data"):
+        if st.checkbox("Show Raw Data"):
             st.dataframe(df.tail(50))
