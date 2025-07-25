@@ -15,12 +15,12 @@ def calculate_indicators(df):
     df['RSI'] = RSIIndicator(df['Close'], window=14).rsi()
 
     bb = BollingerBands(df['Close'], window=20, window_dev=2)
-    df['Upper_Band'] = bb.bollinger_hband()
-    df['Lower_Band'] = bb.bollinger_lband()
+    df['Upper_Band'] = bb.bollinger_hband().values.flatten()
+    df['Lower_Band'] = bb.bollinger_lband().values.flatten()
 
     macd = MACD(df['Close'])
-    df['MACD'] = macd.macd()
-    df['MACD_Signal'] = macd.macd_signal()
+    df['MACD'] = macd.macd().values.flatten()
+    df['MACD_Signal'] = macd.macd_signal().values.flatten()
 
     return df
 
