@@ -9,16 +9,22 @@ from ta.volatility import BollingerBands
 # === Technical Indicator Calculation ===
 def calculate_indicators(df):
     try:
-        # Remove .squeeze() calls - they're unnecessary and can cause issues
-        df['SMA_20'] = SMAIndicator(close=df['Close'], window=20).sma_indicator()
-        df['SMA_50'] = SMAIndicator(close=df['Close'], window=50).sma_indicator()
-        df['RSI'] = RSIIndicator(close=df['Close'], window=14).rsi()
+        # Flatten MultiIndex columns if they exist (common yfinance issue)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.droplevel(1)
         
-        bb = BollingerBands(close=df['Close'], window=20, window_dev=2)
+        # Ensure we have proper 1D Series by using .squeeze()
+        close_series = df['Close'].squeeze()
+        
+        df['SMA_20'] = SMAIndicator(close=close_series, window=20).sma_indicator()
+        df['SMA_50'] = SMAIndicator(close=close_series, window=50).sma_indicator()
+        df['RSI'] = RSIIndicator(close=close_series, window=14).rsi()
+        
+        bb = BollingerBands(close=close_series, window=20, window_dev=2)
         df['Upper_Band'] = bb.bollinger_hband()
         df['Lower_Band'] = bb.bollinger_lband()
         
-        macd = MACD(close=df['Close'])
+        macd = MACD(close=close_series)
         df['MACD'] = macd.macd()
         df['MACD_Signal'] = macd.macd_signal()
         
