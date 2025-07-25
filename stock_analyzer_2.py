@@ -12,48 +12,69 @@ from datetime import datetime, timedelta
 def detect_candlestick_patterns(df):
     patterns = []
     
-    for i in range(1, len(df)):
-        current = df.iloc[i]
-        prev = df.iloc[i-1]
+    try:
+        if len(df) < 2:
+            return patterns
+            
+        for i in range(1, len(df)):
+            current = df.iloc[i]
+            prev = df.iloc[i-1]
+            
+            # Safety checks for required columns
+            required_cols = ['Open', 'Close', 'High', 'Low']
+            if not all(col in df.columns for col in required_cols):
+                continue
+                
+            open_price = float(current['Open'])
+            close_price = float(current['Close'])
+            high_price = float(current['High'])
+            low_price = float(current['Low'])
+            
+            prev_open = float(prev['Open'])
+            prev_close = float(prev['Close'])
+            
+            # Skip if any prices are NaN or invalid
+            if any(pd.isna([open_price, close_price, high_price, low_price, prev_open, prev_close])):
+                continue
+                
+            body = abs(close_price - open_price)
+            prev_body = abs(prev_close - prev_open)
+            upper_shadow = high_price - max(open_price, close_price)
+            lower_shadow = min(open_price, close_price) - low_price
+            
+            # Only process if we have meaningful price data
+            if high_price - low_price == 0:
+                continue
+            
+            # Doji Pattern
+            if body <= (high_price - low_price) * 0.1:
+                patterns.append((df.index[i], 'Doji', '⚖️'))
+            
+            # Hammer Pattern
+            elif (lower_shadow > body * 2 and upper_shadow < body * 0.1 and 
+                  close_price > open_price):
+                patterns.append((df.index[i], 'Hammer', '🔨'))
+            
+            # Shooting Star
+            elif (upper_shadow > body * 2 and lower_shadow < body * 0.1 and 
+                  close_price < open_price):
+                patterns.append((df.index[i], 'Shooting Star', '🌟'))
+            
+            # Bullish Engulfing
+            elif (prev_close < prev_open and close_price > open_price and
+                  open_price < prev_close and close_price > prev_open):
+                patterns.append((df.index[i], 'Bullish Engulfing', '🟢'))
+            
+            # Bearish Engulfing
+            elif (prev_close > prev_open and close_price < open_price and
+                  open_price > prev_close and close_price < prev_open):
+                patterns.append((df.index[i], 'Bearish Engulfing', '🔴'))
         
-        open_price = current['Open']
-        close_price = current['Close']
-        high_price = current['High']
-        low_price = current['Low']
+        return patterns[-10:]  # Return last 10 patterns
         
-        prev_open = prev['Open']
-        prev_close = prev['Close']
-        
-        body = abs(close_price - open_price)
-        prev_body = abs(prev_close - prev_open)
-        upper_shadow = high_price - max(open_price, close_price)
-        lower_shadow = min(open_price, close_price) - low_price
-        
-        # Doji Pattern
-        if body <= (high_price - low_price) * 0.1:
-            patterns.append((df.index[i], 'Doji', '⚖️'))
-        
-        # Hammer Pattern
-        elif (lower_shadow > body * 2 and upper_shadow < body * 0.1 and 
-              close_price > open_price):
-            patterns.append((df.index[i], 'Hammer', '🔨'))
-        
-        # Shooting Star
-        elif (upper_shadow > body * 2 and lower_shadow < body * 0.1 and 
-              close_price < open_price):
-            patterns.append((df.index[i], 'Shooting Star', '🌟'))
-        
-        # Bullish Engulfing
-        elif (i > 0 and prev_close < prev_open and close_price > open_price and
-              open_price < prev_close and close_price > prev_open):
-            patterns.append((df.index[i], 'Bullish Engulfing', '🟢'))
-        
-        # Bearish Engulfing
-        elif (i > 0 and prev_close > prev_open and close_price < open_price and
-              open_price > prev_close and close_price < prev_open):
-            patterns.append((df.index[i], 'Bearish Engulfing', '🔴'))
-    
-    return patterns[-10:]  # Return last 10 patterns
+    except Exception as e:
+        st.error(f"Error detecting patterns: {str(e)}")
+        return []
 
 # === Option Chain Data ===
 def get_option_chain(ticker):
@@ -231,8 +252,8 @@ with st.sidebar:
 if ticker:
     try:
         with st.spinner(f'Loading data for {ticker}...'):
-            # Add progress indication
-            df = yf.download(ticker, period=period, interval=interval, progress=False)
+            # Add progress indication and suppress warning
+            df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
         
         if df.empty:
             st.error("❌ No data available. Check ticker symbol or try a different timeframe.")
