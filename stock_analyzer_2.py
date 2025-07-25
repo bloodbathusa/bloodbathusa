@@ -1,30 +1,28 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import plotly.graph_objs as go
 from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 
-# === Helper Functions ===
-
+# === Technical Indicator Calculation ===
 def calculate_indicators(df):
     df['SMA_20'] = SMAIndicator(close=df['Close'], window=20).sma_indicator().squeeze()
     df['SMA_50'] = SMAIndicator(close=df['Close'], window=50).sma_indicator().squeeze()
-    
     df['RSI'] = RSIIndicator(close=df['Close'], window=14).rsi().squeeze()
-    
+
     bb = BollingerBands(close=df['Close'], window=20, window_dev=2)
     df['Upper_Band'] = bb.bollinger_hband().squeeze()
     df['Lower_Band'] = bb.bollinger_lband().squeeze()
-    
+
     macd = MACD(close=df['Close'])
     df['MACD'] = macd.macd().squeeze()
     df['MACD_Signal'] = macd.macd_signal().squeeze()
-    
+
     return df
 
+# === Trend Analysis ===
 def detect_trend(df):
     latest = df.iloc[-1]
     if latest['SMA_20'] > latest['SMA_50'] and latest['MACD'] > latest['MACD_Signal']:
@@ -34,32 +32,42 @@ def detect_trend(df):
     else:
         return 'Neutral'
 
+# === Trade Suggestion ===
 def trade_suggestion(trend, rsi):
     if trend == 'Bullish' and rsi < 70:
-        return '📈 Suggestion: CALL (Momentum Positive)'
+        return '📈 Suggestion: CALL (Uptrend, RSI Healthy)'
     elif trend == 'Bearish' and rsi > 30:
         return '📉 Suggestion: PUT (Downtrend)'
     else:
-        return '⏸️ Suggestion: WAIT (Sideways or Overbought/Oversold)'
+        return '⏸️ Suggestion: WAIT (Unclear or Overbought/Oversold)'
 
-# === Streamlit UI ===
+# === Main App ===
+st.set_page_config(layout="wide")
+st.title("📊 Stock Technical Analysis & Trade Assistant")
 
-st.title("📊 Technical Analysis & Trade Suggestion App")
+# Sidebar Input
+with st.sidebar:
+    st.header("🔍 Stock Settings")
+    ticker = st.text_input("Enter stock ticker:", value="AAPL")
+    period = st.selectbox("Select timeframe", ["3mo", "6mo", "1y", "2y"], index=1)
+    interval = st.selectbox("Select interval", ["1d", "1h"], index=0)
+    show_raw = st.checkbox("Show raw data table")
+    st.markdown("---")
+    st.markdown("Built with `yfinance` + `ta` + `plotly`")
 
-ticker = st.text_input("Enter Stock Ticker", value="AAPL")
-
+# Data Load
 if ticker:
-    df = yf.download(ticker, period="6mo", interval="1d")
-
+    df = yf.download(ticker, period=period, interval=interval)
+    
     if df.empty:
-        st.warning("No data found for ticker.")
+        st.error("No data available. Check ticker or date range.")
     else:
         df = calculate_indicators(df)
         trend = detect_trend(df)
         rsi = df['RSI'].iloc[-1]
         suggestion = trade_suggestion(trend, rsi)
 
-        # === Chart ===
+        # Chart
         fig = go.Figure()
         fig.add_trace(go.Candlestick(
             x=df.index,
@@ -67,18 +75,25 @@ if ticker:
             low=df['Low'], close=df['Close'],
             name='Candlesticks'
         ))
-        fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], line=dict(color='blue'), name='SMA 20'))
-        fig.add_trace(go.Scatter(x=df.index, y=df['SMA_50'], line=dict(color='red'), name='SMA 50'))
-        fig.add_trace(go.Scatter(x=df.index, y=df['Upper_Band'], line=dict(color='gray'), name='Upper Band', line_dash='dot'))
-        fig.add_trace(go.Scatter(x=df.index, y=df['Lower_Band'], line=dict(color='gray'), name='Lower Band', line_dash='dot'))
-        fig.update_layout(title=f"{ticker} Technical Chart", xaxis_title="Date", yaxis_title="Price")
-        st.plotly_chart(fig)
+        fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], name='SMA 20', line=dict(color='blue')))
+        fig.add_trace(go.Scatter(x=df.index, y=df['SMA_50'], name='SMA 50', line=dict(color='red')))
+        fig.add_trace(go.Scatter(x=df.index, y=df['Upper_Band'], name='Upper Band', line=dict(color='gray', dash='dot')))
+        fig.add_trace(go.Scatter(x=df.index, y=df['Lower_Band'], name='Lower Band', line=dict(color='gray', dash='dot')))
+        fig.update_layout(title=f"{ticker} Chart with Indicators", xaxis_title="Date", yaxis_title="Price")
+        st.plotly_chart(fig, use_container_width=True)
 
-        # === Summary ===
+        # Summary
         st.subheader("📌 Analysis Summary")
-        st.markdown(f"- **Trend:** {trend}")
-        st.markdown(f"- **RSI:** {rsi:.2f}")
-        st.markdown(f"- {suggestion}")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Trend", trend)
+        col2.metric("RSI", f"{rsi:.2f}")
+        col3.metric("Trade Suggestion", suggestion)
 
-        if st.checkbox("Show Raw Data"):
+        # Optional table
+        if show_raw:
+            st.subheader("🔢 Raw Technical Data")
             st.dataframe(df.tail(50))
+
+        # Download data
+        csv = df.to_csv().encode('utf-8')
+        st.download_button("Download CSV", csv, f"{ticker}_analysis.csv", "text/csv")
