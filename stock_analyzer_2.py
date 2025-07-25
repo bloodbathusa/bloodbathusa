@@ -261,6 +261,9 @@ if ticker:
             df = calculate_indicators(df)
             trend = detect_trend(df)
             
+            # Extract RSI for AI analysis
+            rsi = df['RSI'].iloc[-1] if 'RSI' in df.columns and not df['RSI'].isna().all() else np.nan
+            
             # Get candlestick patterns and AI analysis
             patterns = detect_candlestick_patterns(df)
             ai_score, confidence, ai_signals = calculate_ai_signal_score(df, trend, rsi, patterns)
