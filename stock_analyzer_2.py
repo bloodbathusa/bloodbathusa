@@ -9,22 +9,20 @@ from ta.volatility import BollingerBands
 
 # === Helper Functions ===
 
-def flatten(series_or_array):
-    return pd.Series(np.ravel(series_or_array), index=df.index)
-
 def calculate_indicators(df):
-    df['SMA_20'] = flatten(SMAIndicator(df['Close'], window=20).sma_indicator())
-    df['SMA_50'] = flatten(SMAIndicator(df['Close'], window=50).sma_indicator())
-    df['RSI'] = flatten(RSIIndicator(df['Close'], window=14).rsi())
-
-    bb = BollingerBands(df['Close'], window=20, window_dev=2)
-    df['Upper_Band'] = flatten(bb.bollinger_hband())
-    df['Lower_Band'] = flatten(bb.bollinger_lband())
-
-    macd = MACD(df['Close'])
-    df['MACD'] = flatten(macd.macd())
-    df['MACD_Signal'] = flatten(macd.macd_signal())
-
+    df['SMA_20'] = SMAIndicator(close=df['Close'], window=20).sma_indicator().squeeze()
+    df['SMA_50'] = SMAIndicator(close=df['Close'], window=50).sma_indicator().squeeze()
+    
+    df['RSI'] = RSIIndicator(close=df['Close'], window=14).rsi().squeeze()
+    
+    bb = BollingerBands(close=df['Close'], window=20, window_dev=2)
+    df['Upper_Band'] = bb.bollinger_hband().squeeze()
+    df['Lower_Band'] = bb.bollinger_lband().squeeze()
+    
+    macd = MACD(close=df['Close'])
+    df['MACD'] = macd.macd().squeeze()
+    df['MACD_Signal'] = macd.macd_signal().squeeze()
+    
     return df
 
 def detect_trend(df):
