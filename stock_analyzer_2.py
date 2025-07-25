@@ -5,8 +5,156 @@ import plotly.graph_objs as go
 from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
+import numpy as np
+from datetime import datetime, timedelta
 
-# === Technical Indicator Calculation ===
+# === Candlestick Pattern Detection ===
+def detect_candlestick_patterns(df):
+    patterns = []
+    
+    for i in range(1, len(df)):
+        current = df.iloc[i]
+        prev = df.iloc[i-1]
+        
+        open_price = current['Open']
+        close_price = current['Close']
+        high_price = current['High']
+        low_price = current['Low']
+        
+        prev_open = prev['Open']
+        prev_close = prev['Close']
+        
+        body = abs(close_price - open_price)
+        prev_body = abs(prev_close - prev_open)
+        upper_shadow = high_price - max(open_price, close_price)
+        lower_shadow = min(open_price, close_price) - low_price
+        
+        # Doji Pattern
+        if body <= (high_price - low_price) * 0.1:
+            patterns.append((df.index[i], 'Doji', '⚖️'))
+        
+        # Hammer Pattern
+        elif (lower_shadow > body * 2 and upper_shadow < body * 0.1 and 
+              close_price > open_price):
+            patterns.append((df.index[i], 'Hammer', '🔨'))
+        
+        # Shooting Star
+        elif (upper_shadow > body * 2 and lower_shadow < body * 0.1 and 
+              close_price < open_price):
+            patterns.append((df.index[i], 'Shooting Star', '🌟'))
+        
+        # Bullish Engulfing
+        elif (i > 0 and prev_close < prev_open and close_price > open_price and
+              open_price < prev_close and close_price > prev_open):
+            patterns.append((df.index[i], 'Bullish Engulfing', '🟢'))
+        
+        # Bearish Engulfing
+        elif (i > 0 and prev_close > prev_open and close_price < open_price and
+              open_price > prev_close and close_price < prev_open):
+            patterns.append((df.index[i], 'Bearish Engulfing', '🔴'))
+    
+    return patterns[-10:]  # Return last 10 patterns
+
+# === Option Chain Data ===
+def get_option_chain(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        exp_dates = stock.options
+        
+        if not exp_dates:
+            return None, None
+            
+        # Get nearest expiration
+        nearest_exp = exp_dates[0]
+        option_chain = stock.option_chain(nearest_exp)
+        
+        calls = option_chain.calls.head(10)  # Top 10 calls
+        puts = option_chain.puts.head(10)   # Top 10 puts
+        
+        return calls, puts, nearest_exp
+    except Exception as e:
+        st.error(f"Could not fetch options data: {str(e)}")
+        return None, None, None
+
+# === AI Signal Scoring ===
+def calculate_ai_signal_score(df, trend, rsi, patterns):
+    score = 50  # Base score (neutral)
+    confidence = 0
+    signals = []
+    
+    try:
+        latest = df.iloc[-1]
+        
+        # Trend Analysis (30% weight)
+        if trend == 'Bullish':
+            score += 15
+            signals.append("📈 Bullish trend detected")
+        elif trend == 'Bearish':
+            score -= 15
+            signals.append("📉 Bearish trend detected")
+        
+        # RSI Analysis (20% weight)
+        if not pd.isna(rsi):
+            if rsi < 30:
+                score += 10
+                signals.append(f"🔥 RSI oversold ({rsi:.1f})")
+            elif rsi > 70:
+                score -= 10
+                signals.append(f"❄️ RSI overbought ({rsi:.1f})")
+            elif 40 <= rsi <= 60:
+                score += 5
+                signals.append(f"✅ RSI healthy zone ({rsi:.1f})")
+        
+        # Volume Analysis (15% weight)
+        if len(df) >= 20:
+            avg_volume = df['Volume'].tail(20).mean()
+            current_volume = latest.get('Volume', 0)
+            if current_volume > avg_volume * 1.5:
+                score += 8
+                signals.append("📊 High volume confirmation")
+            elif current_volume < avg_volume * 0.5:
+                score -= 5
+                signals.append("📊 Low volume warning")
+        
+        # MACD Analysis (15% weight)
+        if not pd.isna(latest.get('MACD')) and not pd.isna(latest.get('MACD_Signal')):
+            if latest['MACD'] > latest['MACD_Signal']:
+                score += 7
+                signals.append("🚀 MACD bullish crossover")
+            else:
+                score -= 7
+                signals.append("🛑 MACD bearish crossover")
+        
+        # Candlestick Patterns (10% weight)
+        bullish_patterns = ['Hammer', 'Bullish Engulfing']
+        bearish_patterns = ['Shooting Star', 'Bearish Engulfing']
+        
+        for _, pattern, _ in patterns[-3:]:  # Last 3 patterns
+            if pattern in bullish_patterns:
+                score += 5
+                signals.append(f"🕯️ {pattern} pattern detected")
+            elif pattern in bearish_patterns:
+                score -= 5
+                signals.append(f"🕯️ {pattern} pattern detected")
+        
+        # Price Position Analysis (10% weight)
+        if not pd.isna(latest.get('SMA_20')) and not pd.isna(latest.get('SMA_50')):
+            price = latest['Close']
+            if price > latest['SMA_20'] > latest['SMA_50']:
+                score += 5
+                signals.append("📊 Price above both MAs")
+            elif price < latest['SMA_20'] < latest['SMA_50']:
+                score -= 5
+                signals.append("📊 Price below both MAs")
+        
+        # Normalize score and calculate confidence
+        score = max(0, min(100, score))
+        confidence = abs(score - 50) * 2  # 0-100 confidence based on deviation from neutral
+        
+        return score, confidence, signals
+        
+    except Exception as e:
+        return 50, 0, [f"Error in AI analysis: {str(e)}"]
 def calculate_indicators(df):
     try:
         # Flatten MultiIndex columns if they exist (common yfinance issue)
@@ -92,9 +240,12 @@ if ticker:
             df = calculate_indicators(df)
             trend = detect_trend(df)
             
-            # Handle potential NaN values in RSI
-            rsi = df['RSI'].iloc[-1] if not pd.isna(df['RSI'].iloc[-1]) else 0
-            suggestion = trade_suggestion(trend, rsi)
+            # Get candlestick patterns and AI analysis
+            patterns = detect_candlestick_patterns(df)
+            ai_score, confidence, ai_signals = calculate_ai_signal_score(df, trend, rsi, patterns)
+            
+            # Get options data
+            calls, puts, exp_date = get_option_chain(ticker)
             
             # Chart
             fig = go.Figure()
@@ -134,13 +285,20 @@ if ticker:
                     fill='tonexty', fillcolor='rgba(128,128,128,0.1)'
                 ))
             
-            fig.update_layout(
-                title=f"{ticker} Technical Analysis",
-                xaxis_title="Date",
-                yaxis_title="Price ($)",
-                template="plotly_white",
-                height=600
-            )
+            # Handle potential NaN values in RSI
+            rsi = df['RSI'].iloc[-1] if not pd.isna(df['RSI'].iloc[-1]) else 0
+            suggestion = trade_suggestion(trend, rsi)
+            
+            # Add pattern annotations to chart
+            for date, pattern, emoji in patterns:
+                fig.add_annotation(
+                    x=date, y=df.loc[date]['High'] * 1.02,
+                    text=f"{emoji}<br>{pattern}",
+                    showarrow=True, arrowhead=2,
+                    arrowsize=1, arrowwidth=2,
+                    bgcolor="yellow", bordercolor="orange",
+                    font=dict(size=10)
+                )
             
             st.plotly_chart(fig, use_container_width=True)
             
